@@ -1,15 +1,15 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime
 
 class PetBase(BaseModel):
-    name: str
-    species: str
-    breed: Optional[str] = None
-    age: Optional[int] = None
-    color: Optional[str] = None
-    microchip_id: Optional[str] = None
-    description: Optional[str] = None
+    name: Optional[str] = None        # optional if finder doesn't know
+    species: str                      # e.g., dog, cat
+    color: Optional[str] = None       # main color(s)
+    description: Optional[str] = None # short free text
+    photo_url: str                    # required: uploaded picture
+    last_seen_location: dict          # geo point (lat, lon)
+    last_seen_date: datetime
 
 class PetCreate(PetBase):
     pass
@@ -31,9 +31,6 @@ class PetResponse(PetBase):
     id: str
     owner_id: str
     is_missing: bool
-    last_seen_location: Optional[str] = None
-    last_seen_date: Optional[datetime] = None
-    photos: List[str] = []
     created_at: datetime
     updated_at: Optional[datetime] = None
 

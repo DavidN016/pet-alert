@@ -22,7 +22,6 @@ class User(BaseModel):
     id: Optional[PyObjectId] = None
     email: EmailStr
     hashed_password: str
-    full_name: str
     is_active: bool = True
     created_at: datetime = datetime.now()
     updated_at: Optional[datetime] = None
@@ -34,7 +33,6 @@ class User(BaseModel):
         json_schema_extra = {
             "example": {
                 "email": "user@example.com",
-                "full_name": "John Doe",
                 "is_active": True
             }
         }
