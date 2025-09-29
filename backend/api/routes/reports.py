@@ -24,7 +24,7 @@ async def report_missing_pet(
     
     # Get current user ID from the response
     from bson import ObjectId
-    user_id = ObjectId(current_user["id"])
+    user_id = ObjectId(current_user.id)
     
     # Create pet record
     pet_doc = {
@@ -204,7 +204,7 @@ async def get_my_reports(
     
     # Get current user ID
     from bson import ObjectId
-    user_id = ObjectId(current_user["id"])
+    user_id = ObjectId(current_user.id)
     
     # Get user's alerts
     cursor = db.alerts.find(
