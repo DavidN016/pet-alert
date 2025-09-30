@@ -54,7 +54,8 @@ async def create_indexes():
             await db.db.alerts.create_index("alert_type")
             await db.db.alerts.create_index("is_active")
             await db.db.alerts.create_index("created_at")
-            await db.db.alerts.create_index([("latitude", 1), ("longitude", 1)])  # Geospatial index
+            # Ensure GeoJSON 2dsphere index on location for $near queries
+            await db.db.alerts.create_index([("location", "2dsphere")])
         except Exception as e:
             print(f"Warning: Could not create indexes: {e}")
             # Continue without indexes for now

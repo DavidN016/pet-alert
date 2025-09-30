@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+import httpx
 from typing import List, Optional
 from datetime import datetime
 from pydantic import BaseModel
@@ -7,6 +8,7 @@ from api.routes.auth import get_current_user
 from schemas.pet import PetBase, PetCreate, PetResponse, AlertCreate, AlertResponse
 from models.pet import Pet, Alert
 from db.database import get_database
+from core.embeddings import image_bytes_to_embedding
 
 router = APIRouter(prefix="/reports", tags=["missing pet reports"])
 
@@ -26,14 +28,35 @@ async def report_missing_pet(
     from bson import ObjectId
     user_id = ObjectId(current_user.id)
     
+    # Download the photo and compute CLIP embedding
+    embedding = None
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.get(report.photo_url)
+            resp.raise_for_status()
+            image_bytes = resp.content
+        embedding = image_bytes_to_embedding(image_bytes)
+    except Exception as e:
+        # Continue even if embedding fails; log warning
+        print(f"Warning: failed to generate embedding: {e}")
+
     # Create pet record
+    # Normalize to GeoJSON point for geospatial queries
+    geo_point = {
+        "type": "Point",
+        "coordinates": [
+            report.last_seen_location.get("lon") or report.last_seen_location.get("lng"),
+            report.last_seen_location.get("lat"),
+        ],
+    }
+
     pet_doc = {
         "name": report.name,
         "species": report.species,
         "color": report.color,
         "description": report.description,
         "photo_url": report.photo_url,
-        "last_seen_location": report.last_seen_location,
+        "last_seen_location": geo_point,
         "last_seen_date": report.last_seen_date,
         "owner_id": user_id,
         "is_missing": True,
@@ -52,9 +75,10 @@ async def report_missing_pet(
         "alert_type": "missing",
         "title": f"Missing {report.species}: {pet_name}",
         "description": report.description or f"Missing {report.species} named {pet_name}",
-        "location": str(report.last_seen_location),
+        "location": geo_point,
         "contact_info": report.contact_info,
         "photos": [report.photo_url],
+        "embedding": embedding,
         "is_active": True,
         "created_by": user_id,
         "created_at": datetime.now(),

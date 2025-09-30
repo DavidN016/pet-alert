@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
@@ -31,6 +32,9 @@ app.add_middleware(
 
 # Include API router
 app.include_router(api_router)
+
+# Serve static files (e.g., images for testing) from /static
+app.mount("/images", StaticFiles(directory="static/images"), name="images")
 
 @app.get("/")
 async def root():
