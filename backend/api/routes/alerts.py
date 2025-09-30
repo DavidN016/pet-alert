@@ -43,7 +43,7 @@ async def get_alerts_near(
                 alert_type=alert["alert_type"],
                 title=alert["title"],
                 description=alert["description"],
-                location=alert.get("location"),
+                location=str(alert.get("location")),  # Convert GeoJSON to string
                 contact_info=alert["contact_info"],
                 photos=alert.get("photos", []),
                 is_active=alert.get("is_active", True),

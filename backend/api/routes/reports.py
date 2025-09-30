@@ -41,13 +41,28 @@ async def report_missing_pet(
         print(f"Warning: failed to generate embedding: {e}")
 
     # Create pet record
-    # Normalize to GeoJSON point for geospatial queries
+    # Validate and normalize to GeoJSON point for geospatial queries
+    lon = report.last_seen_location.get("lon") or report.last_seen_location.get("lng")
+    lat = report.last_seen_location.get("lat")
+    
+    if lon is None or lat is None:
+        raise HTTPException(
+            status_code=400, 
+            detail="last_seen_location must contain 'lon'/'lng' and 'lat' fields with numeric values"
+        )
+    
+    try:
+        lon_float = float(lon)
+        lat_float = float(lat)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=400,
+            detail="lon and lat must be valid numbers"
+        )
+    
     geo_point = {
         "type": "Point",
-        "coordinates": [
-            report.last_seen_location.get("lon") or report.last_seen_location.get("lng"),
-            report.last_seen_location.get("lat"),
-        ],
+        "coordinates": [lon_float, lat_float],
     }
 
     pet_doc = {
@@ -95,7 +110,7 @@ async def report_missing_pet(
         alert_type=alert_doc["alert_type"],
         title=alert_doc["title"],
         description=alert_doc["description"],
-        location=alert_doc["location"],
+        location=str(alert_doc["location"]),  # Convert GeoJSON to string
         contact_info=alert_doc["contact_info"],
         photos=alert_doc["photos"],
         is_active=alert_doc["is_active"],
@@ -134,7 +149,7 @@ async def get_missing_pets(
             alert_type=alert["alert_type"],
             title=alert["title"],
             description=alert["description"],
-            location=alert["location"],
+            location=str(alert["location"]),  # Convert GeoJSON to string
             contact_info=alert["contact_info"],
             photos=alert.get("photos", []),
             is_active=alert["is_active"],
@@ -244,7 +259,7 @@ async def get_my_reports(
             alert_type=alert["alert_type"],
             title=alert["title"],
             description=alert["description"],
-            location=alert["location"],
+            location=str(alert["location"]),  # Convert GeoJSON to string
             contact_info=alert["contact_info"],
             photos=alert.get("photos", []),
             is_active=alert["is_active"],
