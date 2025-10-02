@@ -1,22 +1,103 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 import httpx
 from typing import List, Optional
 from datetime import datetime
 from pydantic import BaseModel
+import numpy as np
 
 from api.routes.auth import get_current_user
 from schemas.pet import PetBase, PetCreate, PetResponse, AlertCreate, AlertResponse
 from models.pet import Pet, Alert
 from db.database import get_database
-from core.embeddings import image_bytes_to_embedding
+from core.embeddings import image_bytes_to_embedding, text_to_embedding
+import numpy as np
 
 router = APIRouter(prefix="/reports", tags=["missing pet reports"])
 
 class MissingPetReport(PetBase):
     contact_info: str
 
+class ReportWithSimilarPets(BaseModel):
+    report: AlertResponse
+    similar_pets: List[AlertResponse]
 
-@router.post("/missing", response_model=AlertResponse)
+async def _find_similar_pets_auto(image_embedding: List[float], text_embedding: List[float], 
+                                 current_alert_id: str, image_weight: float = 0.7, 
+                                 text_weight: float = 0.3, similarity_threshold: float = 0.7, 
+                                 limit: int = 5) -> List[AlertResponse]:
+    """Automatically find similar pets for a new report"""
+    db = get_database()
+    
+    # Get all active missing pet alerts with embeddings (excluding current one)
+    cursor = db.alerts.find({
+        "is_active": True,
+        "alert_type": "missing",
+        "_id": {"$ne": current_alert_id},  # Exclude current report
+        "$or": [
+            {"image_embedding": {"$exists": True, "$ne": None}},
+            {"text_embedding": {"$exists": True, "$ne": None}}
+        ]
+    })
+    
+    alerts_with_embeddings = await cursor.to_list(length=None)
+    
+    # Calculate combined similarity scores
+    similar_alerts = []
+    for alert in alerts_with_embeddings:
+        combined_similarity = 0.0
+        has_similarity = False
+        
+        # Image similarity
+        if image_embedding and alert.get("image_embedding"):
+            stored_image_embedding = np.array(alert["image_embedding"])
+            query_image_array = np.array(image_embedding)
+            
+            image_similarity = np.dot(query_image_array, stored_image_embedding) / (
+                np.linalg.norm(query_image_array) * np.linalg.norm(stored_image_embedding)
+            )
+            combined_similarity += image_weight * image_similarity
+            has_similarity = True
+        
+        # Text similarity
+        if text_embedding and alert.get("text_embedding"):
+            stored_text_embedding = np.array(alert["text_embedding"])
+            query_text_array = np.array(text_embedding)
+            
+            text_similarity = np.dot(query_text_array, stored_text_embedding) / (
+                np.linalg.norm(query_text_array) * np.linalg.norm(stored_text_embedding)
+            )
+            combined_similarity += text_weight * text_similarity
+            has_similarity = True
+        
+        if has_similarity and combined_similarity >= similarity_threshold:
+            similar_alerts.append((alert, combined_similarity))
+    
+    # Sort by combined similarity score (highest first) and limit results
+    similar_alerts.sort(key=lambda x: x[1], reverse=True)
+    similar_alerts = similar_alerts[:limit]
+    
+    # Convert to AlertResponse format
+    results = []
+    for alert, similarity_score in similar_alerts:
+        results.append(AlertResponse(
+            id=str(alert["_id"]),
+            pet_id=str(alert["pet_id"]),
+            alert_type=alert["alert_type"],
+            title=alert["title"],
+            description=alert["description"],
+            location=str(alert["location"]),
+            contact_info=alert["contact_info"],
+            photos=alert.get("photos", []),
+            is_active=alert["is_active"],
+            created_by=str(alert["created_by"]),
+            created_at=alert["created_at"],
+            updated_at=alert.get("updated_at")
+        ))
+    
+    return results
+
+
+@router.post("/missing", response_model=ReportWithSimilarPets)
 async def report_missing_pet(
     report: MissingPetReport,
     current_user: dict = Depends(get_current_user)
@@ -29,16 +110,26 @@ async def report_missing_pet(
     user_id = ObjectId(current_user.id)
     
     # Download the photo and compute CLIP embedding
-    embedding = None
+    image_embedding = None
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
             resp = await client.get(report.photo_url)
             resp.raise_for_status()
             image_bytes = resp.content
-        embedding = image_bytes_to_embedding(image_bytes)
+        image_embedding = image_bytes_to_embedding(image_bytes)
     except Exception as e:
         # Continue even if embedding fails; log warning
-        print(f"Warning: failed to generate embedding: {e}")
+        print(f"Warning: failed to generate image embedding: {e}")
+    
+    # Generate text embedding from description
+    text_embedding = None
+    try:
+        # Create text description from available fields
+        text_description = f"{report.species} {report.color or ''} {report.description or ''}".strip()
+        if text_description:
+            text_embedding = text_to_embedding(text_description)
+    except Exception as e:
+        print(f"Warning: failed to generate text embedding: {e}")
 
     # Create pet record
     # Validate and normalize to GeoJSON point for geospatial queries
@@ -93,7 +184,8 @@ async def report_missing_pet(
         "location": geo_point,
         "contact_info": report.contact_info,
         "photos": [report.photo_url],
-        "embedding": embedding,
+        "image_embedding": image_embedding,
+        "text_embedding": text_embedding,
         "is_active": True,
         "created_by": user_id,
         "created_at": datetime.now(),
@@ -104,7 +196,8 @@ async def report_missing_pet(
     alert_result = await db.alerts.insert_one(alert_doc)
     alert_doc["_id"] = alert_result.inserted_id
     
-    return AlertResponse(
+    # Create the main report response
+    created_report = AlertResponse(
         id=str(alert_doc["_id"]),
         pet_id=str(alert_doc["pet_id"]),
         alert_type=alert_doc["alert_type"],
@@ -117,6 +210,22 @@ async def report_missing_pet(
         created_by=str(alert_doc["created_by"]),
         created_at=alert_doc["created_at"],
         updated_at=alert_doc["updated_at"]
+    )
+    
+    # Automatically find similar pets
+    similar_pets = []
+    if image_embedding or text_embedding:
+        try:
+            similar_pets = await _find_similar_pets_auto(
+                image_embedding, text_embedding, 
+                alert_result.inserted_id
+            )
+        except Exception as e:
+            print(f"Warning: failed to find similar pets: {e}")
+    
+    return ReportWithSimilarPets(
+        report=created_report,
+        similar_pets=similar_pets
     )
 
 @router.get("/missing", response_model=List[AlertResponse])
