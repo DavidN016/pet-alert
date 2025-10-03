@@ -20,7 +20,10 @@ export default function ProfileScreen({ onLogout }: any) {
         text: "Logout",
         style: "destructive",
         onPress: () => {
+          // Call the iout prop to handle the actual logout
           onLogout();
+          // Update local state
+          setIsLoggedIn(false);
         },
       },
     ]);
@@ -40,6 +43,18 @@ export default function ProfileScreen({ onLogout }: any) {
 
   const handleHelp = () => {
     Alert.alert("Help", "Show help information");
+  };
+
+  const handleLogin = async () => {
+    // Navigate to login screen
+    // This will be handled by the navigation system
+    Alert.alert("Login", "Redirecting to login screen...");
+  };
+
+  const handleRegister = async () => {
+    // Navigate to register screen
+    // This will be handled by the navigation system
+    Alert.alert("Register", "Redirecting to register screen...");
   };
 
   return (

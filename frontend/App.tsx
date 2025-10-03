@@ -18,7 +18,7 @@ import RegisterScreen from "./src/screens/RegisterScreen";
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
-function MainTabs() {
+function MainTabs({ onLogout }: { onLogout: () => void }) {
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -56,7 +56,9 @@ function MainTabs() {
       <Tab.Screen name="Map" component={MapScreen} options={{ title: "Map" }} />
       <Tab.Screen
         name="Profile"
-        component={ProfileScreen}
+        component={(props: any) => (
+          <ProfileScreen {...props} onLogout={onLogout} />
+        )}
         options={{ title: "Profile" }}
       />
     </Tab.Navigator>
@@ -141,15 +143,10 @@ export default function App() {
           <>
             <Stack.Screen
               name="Main"
-              component={MainTabs}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="Profile"
               component={(props: any) => (
-                <ProfileScreen {...props} onLogout={handleLogout} />
+                <MainTabs {...props} onLogout={handleLogout} />
               )}
-              options={{ title: "Profile" }}
+              options={{ headerShown: false }}
             />
           </>
         ) : (
